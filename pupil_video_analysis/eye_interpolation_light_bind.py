@@ -59,7 +59,7 @@ def is_light(key: DLCKey):
 if __name__ == '__main__':
 
 
-    h5p = "C:/Users/Koji/analysis/pupil_video_analysis/pupil_video_analysis/videos_h5/"
+    h5p = "D:/Niki-pupil/pupil_video_analysis/pupil_video_analysis/videos_h5/"
     h5s = glob.glob(h5p+"*.h5")
     likelihood_threshold = 0.9
 

@@ -16,19 +16,14 @@ VLen = float
 HLen = float
 EventLightOn = float
 Likelihood = float
-
+EAR = float
 
 A = float
 B = float
 Theta = float
 EllipseParmas = Tuple[XCenter, YCenter, A, B, Theta]
-
-
 Area = float
-
 Color = Tuple[int, int, int]
-
-
 Model = str
 Bodyparts = str
 Coordinate = str
@@ -95,7 +90,7 @@ def is_marked(frame: NDArray,likelihood: float, threshold: float,
 
 def to_video_path(h5path: Path) -> str:
     stem = h5path.stem.split("_interpolated")[0]
-    return str(h5path.parents[0].joinpath("videos").joinpath(stem)) + ".MP4"
+    return str(h5path.parents[1].joinpath("videos").joinpath(stem)) + ".MP4"
 
 #Niki add 
 
@@ -134,22 +129,40 @@ def event_light_position(data,frame):
 
     return list(data_list)
 
-
-
+def get_eye_aspect_ratio(data: pd.DataFrame):
+    top_keys = extract_key_of_bodyparts(data,"top-")
+    bottom_keys = extract_key_of_bodyparts(data, "bottom-")
+    top_data = data[top_keys]
+    bottom_data = data[bottom_keys]
+    top_data = top_data.rename(columns = {top_keys[0][0]:"left",top_keys[3][0]:"right"})
+    bottom_data = bottom_data.rename(columns = {bottom_keys[0][0]:"left",bottom_keys[3][0]:"right"})
+    xy_cordinate_diff = (top_data - bottom_data)
+    l_v_len = xy_cordinate_diff["left"].apply(lambda x: np.linalg.norm(x),axis=1)
+    r_v_len = xy_cordinate_diff["right"].apply(lambda x: np.linalg.norm(x),axis=1)
+   
+    right_key = extract_key_of_bodyparts(data, "eyelids_right")
+    left_key = extract_key_of_bodyparts(data, "eyelids_left")
+    right_data = data[right_key]
+    left_data = data[left_key]
+    horizon_r_data = right_data.rename(columns = {right_key[0][0]:"horizon"})
+    horizon_l_data = left_data.rename(columns = {left_key[0][0]:"horizon"})
+    lr_xy_cordinate_diff = horizon_r_data - horizon_l_data
+    horizontal_len = lr_xy_cordinate_diff.apply(lambda x: np.linalg.norm(x),axis=1)
+    ear = (l_v_len + r_v_len )/ (2*horizontal_len)
+    return(ear)
 
     
 if __name__ == '__main__':
 
     create_video = True
-    show_video = True
-    h5p = "C:/Users/Koji/analysis/pupil_video_analysis/pupil_video_analysis/videos_h5/interpolated_data/"
-    h5s = glob.glob(h5p+"*interpolated.h5")
+    show_video = False
+    h5p = "D:/Niki-pupil/pupil_video_analysis/pupil_video_analysis/videos_h5"
+    h5s = glob.glob(h5p+"/interpolated_data/"+"*interpolated.h5")
 
 
     for h5 in h5s:
         video = to_video_path(Path(h5))
         print(f"start processing {video}")
-
         tracked_data = pd.read_hdf(h5)
         cap = cv2.VideoCapture(str(video))
         nframe = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -160,19 +173,20 @@ if __name__ == '__main__':
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             fps = cap.get(cv2.CAP_PROP_FPS)
             writer = cv2.VideoWriter(
-                f"{h5p}elipse_video/{Path(video).stem}-ellipse.MP4", fourcc, fps,
+                f"{h5p}/elipse_video/{Path(video).stem}-ellipse.MP4", fourcc, fps,
                 (width, height))
 
         pupil_keys = extract_key_of_bodyparts(tracked_data, "pupil")
         eyelid_keys = extract_key_of_bodyparts(tracked_data, "eyelid")
-
+        
         pupil_data = reshape2fittable(tracked_data[pupil_keys])
         eyelid_data = reshape2fittable(tracked_data[eyelid_keys])
+
+        ear = get_eye_aspect_ratio(tracked_data[eyelid_keys])
 
         nose_keys = extract_key_of_bodyparts(tracked_data, "nose")
         nose_data = reshape2fittable(tracked_data[nose_keys])
         
-
         FT_keys = extract_key_of_bodyparts(tracked_data, "FT")
         peak_keys = extract_key_of_bodyparts(tracked_data, "peak")
         FT_data = reshape2fittable(tracked_data[FT_keys])
@@ -184,7 +198,7 @@ if __name__ == '__main__':
         peak_likelihood_data = pickup_event(tracked_data[peak_likelihood_keys])
 
 
-        results: List[Tuple[Area,VLen,HLen,Area,VLen,HLen,XCenter,YCenter,XCenter,YCenter,EventLightOn,Likelihood, EventLightOn,Likelihood]] = []
+        results: List[Tuple[Area,VLen,HLen,Area,VLen,HLen,EAR,XCenter,YCenter,XCenter,YCenter,EventLightOn,Likelihood, EventLightOn,Likelihood]] = []
         for i in range(nframe):
             if i % 5000 == 0:
                 print(f"Processing {i}-th frame")
@@ -213,24 +227,24 @@ if __name__ == '__main__':
             FT_on = is_marked(frame,FT_likelihood, 0.1, FT_position, ((225, 225, 225), (255, 255, 255)))
             peak_on = is_marked(frame,peak_likelihood, 0.05, peak_position, ((225, 225, 225), (255, 255, 255)))
 
-            results.append((pupil_area,pupil_v_len, pupil_h_len, eyelid_area, eye_v_len,eye_h_len, pupil_x, pupil_y,nose_x,nose_y,FT_on,FT_likelihood,peak_on,peak_likelihood))
+            results.append((pupil_area,pupil_v_len, pupil_h_len, eyelid_area, eye_v_len,eye_h_len, ear[i], pupil_x, pupil_y,nose_x,nose_y,FT_on,FT_likelihood,peak_on,peak_likelihood))
 
-            if show_video:
+            #if show_video:
                 
-                nose_draw_position = [int(nose_x),int(nose_y)]
+            nose_draw_position = [int(nose_x),int(nose_y)]
 
-                draw_ellipse(frame, pupil_params, (0, 0, 255), 1)
-                draw_ellipse(frame, eyelid_params, (0, 255, 0), 1)
-                draw_circle(frame,nose_draw_position,5, (255,0,0), -1)
+            draw_ellipse(frame, pupil_params, (0, 0, 255), 1)
+            draw_ellipse(frame, eyelid_params, (0, 255, 0), 1)
+            draw_circle(frame,nose_draw_position,5, (255,0,0), -1)
 
-                if FT_likelihood > 0.1:
-                    draw_circle(frame, FT_position, 10, (0, 0, 255), -1)
-                if peak_likelihood > 0.1:
-                    draw_circle(frame, peak_position, 10, (255, 0, 0), -1)
-                if FT_on == 1:
-                    draw_circle(frame, FT_position, 10, (0, 0,255), 1)
-                if peak_on == 1:
-                    draw_circle(frame, peak_position, 10, (255, 0, 0), 1)
+            if FT_likelihood > 0.1:
+                draw_circle(frame, FT_position, 10, (0, 0, 255), -1)
+            if peak_likelihood > 0.1:
+                draw_circle(frame, peak_position, 10, (255, 0, 0), -1)
+            if FT_on == 1:
+                draw_circle(frame, FT_position, 10, (0, 0,255), 1)
+            if peak_on == 1:
+                draw_circle(frame, peak_position, 10, (255, 0, 0), 1)
 
             if create_video:
                 writer.write(frame)
@@ -248,7 +262,7 @@ if __name__ == '__main__':
             writer.release()
         output = pd.DataFrame(
             results,
-            columns=["pupil_area","pupil_v_len","pupil_h_len","eyelid_area", "eye_v_len","eye_h_len","pupil_center_x", "pupil_center_y","nose_x","nose_y","FT_on", "FT_likelihood","peak_on","peak_likelihood"])
+            columns=["pupil_area","pupil_v_len","pupil_h_len","eyelid_area", "eye_v_len","eye_h_len","EAR","pupil_center_x", "pupil_center_y","nose_x","nose_y","FT_on", "FT_likelihood","peak_on","peak_likelihood"])
         output_path = as_output_filename(Path(video))
         output.to_csv(output_path, index=False)
 
